@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Mendoza Invadida - GitHub Pages</title>
+    <style>
+        body {
+            background-color: #1a1423;
+            color: #f4f1ea;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h1 {
+            font-size: 1.2rem;
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+        }
+        p {
+            font-size: 0.8rem;
+            color: #b8b4c4;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        canvas {
+            border: 4px solid #4a2a74;
+            box-shadow: 0 0 20px rgba(140, 240, 122, 0.2);
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            width: 960px;
+            height: 528px;
+        }
+        #loading {
+            position: absolute;
+            color: #8cf07a;
+            font-size: 1rem;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>MENDOZA INVADIDA: CAMINO AL PORTAL</h1>
+    <p>[←] [→] Moverse | [Espacio] Disparar Chorro de Soda | ¡Llega al final y derrota al Ente!</p>
+    
+    <div id="loading">Cargando recursos del juego...</div>
+    <canvas id="gameCanvas" width="320" height="176"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = false;
+
+        const spritesheet = new Image();
+        spritesheet.src = "mendoza_pixel_pack/spritesheet.png";
+
+        const atlas = {
+            "player_idle": { x: 183, y: 1, w: 16, h: 24 },
+            "player_walk_1": { x: 217, y: 1, w: 16, h: 24 },
+            "player_walk_2": { x: 234, y: 1, w: 16, h: 24 },
+            "player_shoot": { x: 200, y: 1, w: 16, h: 24 },
+            "fx_chorro_1": { x: 84, y: 92, w: 8, h: 8 },
+            "fx_chorro_2": { x: 93, y: 92, w: 8, h: 8 },
+            "bicho_baboso_1": { x: 120, y: 50, w: 16, h: 16 },
+            "bicho_baboso_2": { x: 137, y: 50, w: 16, h: 16 },
+            "zombi_vinatero_1": { x: 52, y: 50, w: 16, h: 24 },
+            "zombi_vinatero_2": { x: 69, y: 50, w: 16, h: 24 },
+            "zombi_vinatero_3": { x: 86, y: 50, w: 16, h: 24 },
+            "el_ente_1": { x: 67, y: 1, w: 32, h: 32 },
+            "el_ente_2": { x: 100, y: 1, w: 32, h: 32 },
+            "item_uva": { x: 52, y: 75, w: 16, h: 16 },
+            "item_malbec": { x: 1, y: 75, w: 16, h: 16 },
+            "item_empanada": { x: 239, y: 50, w: 16, h: 16 },
+            "fx_explosion_1": { x: 171, y: 50, w: 16, h: 16 },
+            "fx_explosion_2": { x: 188, y: 50, w: 16, h: 16 },
+            "fx_explosion_3": { x: 205, y: 50, w: 16, h: 16 },
+            "fx_explosion_4": { x: 222, y: 50, w: 16, h: 16 },
+            "ui_corazon": { x: 102, y: 92, w: 8, h: 8 },
+            "tile_suelo_pasto": { x: 18, y: 92, w: 16, h: 16 },
+            "tile_tierra": { x: 52, y: 92, w: 16, h: 16 }
+        };
+
+        const bgSky = new Image(); bgSky.src = "mendoza_pixel_pack/backgrounds/fondo_1_cielo_portal.png";
+        const bgAndes = new Image(); bgAndes.src = "mendoza_pixel_pack/backgrounds/fondo_2_andes.png";
+        const bgHills = new Image(); bgHills.src = "mendoza_pixel_pack/backgrounds/fondo_3_sierras.png";
+        const bgVine = new Image(); bgVine.src = "mendoza_pixel_pack/backgrounds/fondo_4_vinedo.png";
+
+        const MAP_LENGTH = 1500;
+        let cameraX = 0;
+        let player = { x: 40, y: 120, vx: 0, speed: 1.5, lives: 3, score: 0, state: 'idle' };
+        let keys = {};
+        let bullets = [];
+        let explosions = [];
+        let gameFrame = 0;
+        let gameState = 'playing';
+
+        let items = [
+            { x: 200, y: 128, type: 'item_uva', collected: false },
+            { x: 450, y: 128, type: 'item_malbec', collected: false },
+            { x: 700, y: 128, type: 'item_empanada', collected: false },
+            { x: 1000, y: 128, type: 'item_uva', collected: false }
+        ];
+
+        let enemies = [
+            { x: 300, y: 128, type: 'bicho', vx: -0.4, alive: true },
+            { x: 550, y: 120, type: 'zombi', vx: -0.3, alive: true },
+            { x: 850, y: 128, type: 'bicho', vx: -0.5, alive: true },
+            { x: 1150, y: 120, type: 'zombi', vx: -0.3, alive: true }
+        ];
+
+        let boss = { x: 1380, y: 112, w: 32, h: 32, hp: 15, maxHp: 15, alive: true };
+
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (e.code === 'Space' && gameState === 'playing') shootSoda();
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function shootSoda() {
+            bullets.push({ x: player.x + 12, y: player.y + 8, vx: 3 });
+            player.state = 'shoot';
+            setTimeout(() => { if (player.state === 'shoot') player.state = 'idle'; }, 200);
+        }
+
+        function drawSprite(name, dx, dy, flip = false) {
+            const f = atlas[name];
+            if (!f) return;
+            ctx.save();
+            if (flip) {
+                ctx.translate(dx + f.w, dy);
+                ctx.scale(-1, 1);
+                ctx.drawImage(spritesheet, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+            } else {
+                ctx.drawImage(spritesheet, f.x, f.y, f.w, f.h, dx, dy, f.w, f.h);
+            }
+            ctx.restore();
+        }
+
+        function update() {
+            if (gameState !== 'playing') return;
+            gameFrame++;
+
+            player.vx = 0;
+            if (keys['ArrowLeft']) { player.vx = -player.speed; player.state = 'walk'; }
+            else if (keys['ArrowRight']) { player.vx = player.speed; player.state = 'walk'; }
+            else if (player.state !== 'shoot') { player.state = 'idle'; }
+
+            player.x += player.vx;
+            if (player.x < 0) player.x = 0;
+            if (player.x > MAP_LENGTH - 16) player.x = MAP_LENGTH - 16;
+
+            cameraX = player.x - 100;
+            if (cameraX < 0) cameraX = 0;
+            if (cameraX > MAP_LENGTH - 320) cameraX = MAP_LENGTH - 320;
+
+            bullets.forEach(b => b.x += b.vx);
+            bullets = bullets.filter(b => b.x < cameraX + 320 && b.x > cameraX);
+
+            items.forEach(item => {
+                if (!item.collected && Math.abs(player.x - item.x) < 12) {
+                    item.collected = true;
+                    player.score += 100;
+                }
+            });
+
+            enemies.forEach(en => {
+                if (!en.alive) return;
+                bullets.forEach((b, bi) => {
+                    if (b.x > en.x && b.x < en.x + 14 && b.y > en.y && b.y < en.y + 16) {
+                        explosions.push({ x: en.x, y: en.y, frame: 0, timer: 0 });
+                        en.alive = false;
+                        player.score += 250;
+                        bullets.splice(bi, 1);
+                    }
+                });
+            });
+
+            if (boss.alive) {
+                bullets.forEach((b, bi) => {
+                    if (b.x > boss.x && b.x < boss.x + boss.w && b.y > boss.y && b.y < boss.y + boss.h) {
+                        boss.hp--;
+                        explosions.push({ x: b.x - 4, y: b.y - 4, frame: 0, timer: 0 });
+                        bullets.splice(bi, 1);
+                        if (boss.hp <= 0) {
+                            boss.alive = false;
+                            gameState = 'win';
+                        }
+                    }
+                });
+            }
+
+            explosions.forEach(ex => {
+                ex.timer++;
+                if (ex.timer > 4) { ex.frame++; ex.timer = 0; }
+            });
+            explosions = explosions.filter(ex => ex.frame < 4);
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.drawImage(bgSky, 0, 0);
+            ctx.drawImage(bgAndes, -(cameraX * 0.2) % 320, 0);
+            ctx.drawImage(bgAndes, -((cameraX * 0.2) % 320) + 320, 0);
+            ctx.drawImage(bgHills, -(cameraX * 0.5) % 320, 0);
+            ctx.drawImage(bgHills, -((cameraX * 0.5) % 320) + 320, 0);
+            ctx.drawImage(bgVine, -cameraX % 320, 0);
+            ctx.drawImage(bgVine, (-cameraX % 320) + 320, 0);
+
+            let startTile = Math.floor(cameraX / 16) * 16;
+            let endTile = startTile + 340;
+            for (let tx = startTile; tx < endTile; tx += 16) {
+                let screenX = tx - cameraX;
+                const p = atlas['tile_suelo_pasto'];
+                const t = atlas['tile_tierra'];
+                ctx.drawImage(spritesheet, p.x, p.y, p.w, p.h, screenX, 144, 16, 16);
+                ctx.drawImage(spritesheet, t.x, t.y, t.w, t.h, screenX, 160, 16, 16);
+            }
+
+            items.forEach(item => {
+                if (!item.collected && item.x > cameraX - 20 && item.x < cameraX + 340) {
+                    drawSprite(item.type, item.x - cameraX, item.y);
+                }
+            });
+
+            let pFrameName = 'player_idle';
+            if (player.state === 'walk') {
+                pFrameName = Math.floor(gameFrame / 8) % 2 === 0 ? 'player_walk_1' : 'player_walk_2';
+            } else if (player.state === 'shoot') {
+                pFrameName = 'player_shoot';
+            }
+            drawSprite(pFrameName, player.x - cameraX, player.y);
+
+            let sodaFrame = Math.floor(gameFrame / 5) % 2 === 0 ? 'fx_chorro_1' : 'fx_chorro_2';
+            bullets.forEach(b => drawSprite(sodaFrame, b.x - cameraX, b.y));
+
+            enemies.forEach(en => {
+                if (!en.alive) return;
+                let screenX = en.x - cameraX;
+                if (screenX > -30 && screenX < 350) {
+                    let eFrame = Math.floor(gameFrame / 10) % 2 === 0 ? 1 : 2;
+                    if (en.type === 'bicho') {
+                        drawSprite(`bicho_baboso_${eFrame}`, screenX, en.y);
+                    } else {
+                        let zFrame = (Math.floor(gameFrame / 8) % 3) + 1;
+                        drawSprite(`zombi_vinatero_${zFrame}`, screenX, en.y, true);
+                    }
+                }
+            });
+
+            if (boss.alive) {
+                let bossScreenX = boss.x - cameraX;
+                if (bossScreenX > -40 && bossScreenX < 350) {
+                    let bFrame = Math.floor(gameFrame / 15) % 2 === 0 ? 'el_ente_1' : 'el_ente_2';
+                    drawSprite(bFrame, bossScreenX, boss.y);
+
+                    ctx.fillStyle = '#8a2a2e';
+                    ctx.fillRect(bossScreenX, boss.y - 8, boss.w, 4);
+                    ctx.fillStyle = '#8cf07a';
+                    ctx.fillRect(bossScreenX, boss.y - 8, (boss.w * (boss.hp / boss.maxHp)), 4);
+                }
+            }
+
+            explosions.forEach(ex => {
+                let screenX = ex.x - cameraX;
+                drawSprite(`fx_explosion_${ex.frame + 1}`, screenX, ex.y);
+            });
+
+            for (let i = 0; i < player.lives; i++) {
+                const h = atlas['ui_corazon'];
+                ctx.drawImage(spritesheet, h.x, h.y, h.w, h.h, 8 + (i * 10), 8, h.w, h.h);
+            }
+
+            ctx.fillStyle = '#f4f1ea';
+            ctx.font = '8px "Courier New"';
+            ctx.fillText(`PUNTOS: ${player.score}`, 250, 14);
+
+            if (gameState === 'win') {
+                ctx.fillStyle = 'rgba(26, 20, 35, 0.85)';
+                ctx.fillRect(0, 0, 320, 176);
+                ctx.fillStyle = '#8cf07a';
+                ctx.font = '12px "Courier New"';
+                ctx.fillText("¡MENDOZA ESTÁ SALVADA!", 60, 80);
+                ctx.fillStyle = '#f4f1ea';
+                ctx.font = '8px "Courier New"';
+                ctx.fillText(`Puntaje Final: ${player.score}`, 110, 100);
+            }
+        }
+
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        spritesheet.onload = () => {
+            document.getElementById("loading").style.display = "none";
+            gameLoop();
+        };
+
+        spritesheet.onerror = () => {
+            document.getElementById("loading").innerText = "Error: No se pudo cargar 'mendoza_pixel_pack/spritesheet.png'. Revisa la ruta en GitHub.";
+            document.getElementById("loading").style.color = "#c8423c";
+        };
+    </script>
+</body>
+</html>
